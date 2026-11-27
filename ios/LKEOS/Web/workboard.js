@@ -8,32 +8,43 @@ let drawerEntered = false;
 let lastTrigger = null;
 const workDrawer = document.getElementById("work-drawer");
 let recentWorks = [];
+let completionMarks = new Map();
+let hiddenSubjects = new Set();
 
-function historyKey() {
-  return "campus.recentWorks." + JSON.stringify([accountsModel?.active ?? "", data.accountKey ?? data.name]);
+function boardStorageKey(group) {
+  return "campus." + group + "." + JSON.stringify([accountsModel?.active ?? "", data.accountKey ?? data.name]);
 }
 
 function trackWork(courseId, id) {
   if (!live || !courseId || !id) return;
   recentWorks = [{courseId,id}, ...recentWorks.filter(item=>item.courseId!==courseId || item.id!==id)].slice(0,32);
-  try { localStorage.setItem(historyKey(),JSON.stringify(recentWorks)); } catch {}
+  try { localStorage.setItem(boardStorageKey("recentWorks"),JSON.stringify(recentWorks)); } catch {}
 }
 
 function resetBoard() {
   ++boardGeneration;
   workIndexes.clear();
   recentWorks = [];
+  hiddenSubjects = new Set();
   if (live) try {
-    const stored = JSON.parse(localStorage.getItem(historyKey()) || "[]");
+    const stored = JSON.parse(localStorage.getItem(boardStorageKey("hiddenSubjects")) || "[]");
+    if (Array.isArray(stored)) hiddenSubjects = new Set(stored.filter(Number.isSafeInteger));
+  } catch {}
+  completionMarks = new Map();
+  if (live) try {
+    completionMarks = new Map(JSON.parse(localStorage.getItem(boardStorageKey("completion")) || "[]"));
+  } catch {}
+  if (live) try {
+    const stored = JSON.parse(localStorage.getItem(boardStorageKey("recentWorks")) || "[]");
     if (Array.isArray(stored)) recentWorks = stored.filter(item=>Number.isSafeInteger(item?.courseId) && Number.isSafeInteger(item.id)).slice(0,32);
   } catch {}
   if (boardWork) releaseWork();
 }
 
 function tickBoard() {
-  if (!sso || !live || expiredSession.eos || !["home","works"].includes(page) || restoringSession || connectionPending) return;
+  if (!sso || !live || !["home","works"].includes(page) || restoringSession || connectionPending) return;
   const missing = visibleCourses().filter(c => !workIndexes.has(c.id) &&
-    (page === "works" || recentWorks.some(item=>item.courseId===c.id)));
+    (page === "works" ? !hiddenSubjects.has(c.id) : recentWorks.some(item=>item.courseId===c.id)));
   for (const course of missing.slice(0, Math.max(0, 2-boardJobs))) {
     const generation = boardGeneration;
     ++boardJobs;
@@ -80,17 +91,67 @@ function workLabel(entry) {
 
 function workStatus(entry) {
   const grade = entry.grade?.trim() || "";
-  if (/^\s*\d/.test(grade)) return {done:true, text:grade};
   const text = entry.status || "";
   const pending = /не\s+(сдан|отправл|представ|оцен|выполн)|нет ответа|not (submitted|graded)|no submission/i.test(text);
-  const done = !pending && /сдан|отправлен|представлен|оценено|graded|submitted/i.test(text);
-  return {done, text:text || "Статус не указан"};
+  const submitted = !pending && /сдан|отправлен|представлен|submitted/i.test(text);
+  const graded = /^\s*\d/.test(grade);
+  return {submitted, done:graded || submitted || (!pending && /оценено|graded/i.test(text)),
+    text:(graded ? grade : text) || "Статус не указан"};
+}
+
+function completionControl(key, name, status, course = false) {
+  const checked = completionMarks.get(key) ?? status.done;
+  const hint = course ? "Личная отметка о закрытии предмета" :
+    (completionMarks.has(key) ? "Личная отметка. " : "") + "ЭОС: " + status.text;
+  return '<label class="completion-control" title="'+escape(hint)+'"><input type="checkbox" data-completion="'+key+
+    '" data-mark-name="'+escape(name)+'" data-submitted="'+(status.submitted === true)+'" aria-label="'+escape((course ? "Предмет закрыт: " : "Работа выполнена: ")+name)+
+    '"'+(checked ? " checked" : "")+'><span class="check-box" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none">'+
+    '<path d="M3.5 8 6.5 11 12.5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>'+
+    (course ? '<span class="course-mark-label">'+(checked ? "Предмет закрыт" : "Закрыть предмет")+'</span>' : "")+'</label>';
 }
 
 function workCheck(work) {
-  const status=workStatus(work);
-  return '<span class="work-check'+(status.done?' done':'')+'" role="img" aria-label="'+escape(status.text)+
-    '" title="'+escape(status.text)+'">'+(status.done?'✓':'')+'</span>';
+  return completionControl(work.courseId+"."+work.id, work.name, workStatus(work));
+}
+
+function courseCheck(course) {
+  return completionControl(String(course.id), course.name, {done:false}, true);
+}
+
+function changeCompletion(input) {
+  const {completion:key, markName:name, submitted} = input.dataset;
+  const checked = input.checked;
+  input.checked = !checked;
+  const course = !key.includes(".");
+  if (!course && submitted === "true") {
+    saveCompletion(key, checked);
+    document.querySelector('[data-completion="'+key+'"]')?.focus({preventScroll:true});
+    return;
+  }
+  const action = course ? (checked ? "Закрыть предмет" : "Открыть предмет снова") :
+    (checked ? "Отметить выполненной" : "Снять отметку");
+  const title = course ? action+"?" : checked ? "Отметить работу выполненной?" : "Снять отметку о выполнении?";
+  const detail = course ? "Изменится личная отметка предмета в вашем профиле." :
+    "В ЭОС нет подтверждения отправки ответа. Изменится только ваша личная отметка.";
+  openDialog(title, '<p class="confirm-subject">'+escape(name)+'</p><p class="dialog-meta">'+detail+'</p><div class="actions">'+
+    button("Отмена",'data-action="close"',"")+
+    button(action,'data-confirm-mark="'+key+'" data-checked="'+checked+'"',"","primary")+'</div>');
+  dialog.querySelector('.actions [data-action="close"]').focus();
+}
+
+function saveCompletion(key, value) {
+  const marks = new Map(completionMarks);
+  if (value === null) marks.delete(key);
+  else marks.set(key, value);
+  try {
+    localStorage.setItem(boardStorageKey("completion"), JSON.stringify([...marks]));
+    completionMarks = marks;
+  } catch {
+    toast("Не удалось сохранить отметку на этом iPhone.");
+    return false;
+  }
+  updateBoard();
+  return true;
 }
 
 function recentBody() {
@@ -108,9 +169,9 @@ function recentBody() {
     if (!work) continue;
     const sectionLabel = workLabel({name:"",section:work.section});
     const name = workLabel({name:work.name})==="Задание" && sectionLabel!=="Задание" ? sectionLabel+" · "+work.name : work.name;
-    rows.push('<button type="button" class="recent-row" data-work="'+id+'" data-subject="'+courseId+'" aria-haspopup="dialog">'+
-      '<span class="recent-copy"><strong>'+escape(name)+'</strong><small>'+escape(course.name)+'</small></span>'+workCheck(work)+'</button>');
-    if (rows.length===4) break;
+    rows.push('<div class="recent-item"><button type="button" class="recent-row" data-work="'+id+'" data-subject="'+courseId+'" aria-haspopup="dialog">'+
+      '<span class="recent-copy"><strong>'+escape(name)+'</strong><small>'+escape(course.name)+'</small></span></button>'+workCheck(work)+'</div>');
+    if (rows.length === 5) break;
   }
   return rows.join("") + (incomplete ? '<p class="board-note">Не все работы загрузились. '+button("Повторить",'data-action="retry-index"',"refresh","ghost")+'</p>' :
     !rows.length ? empty(loading ? "Загружаем недавние работы…" : "Пока нет открытых работ", loading ? "" : "Откройте лабораторную или практику в разделе «Мои работы».") : "");
@@ -125,13 +186,16 @@ function workBoardBody() {
   if (!live) return empty("Войдите в ЭОС, чтобы увидеть работы");
   let rows = "", loading = false, incomplete = false;
   for (const course of visibleCourses()) {
+    if (hiddenSubjects.has(course.id)) continue;
     const index = workIndexes.get(course.id);
     loading ||= sso && (!index || !!index.loading);
     incomplete ||= !!(index?.failed || index?.partial);
     const works = worksFor(course);
     works.forEach((work,i) => {
       const label=workLabel(work);
-      rows += '<tr>' + (i ? '' : '<th scope="rowgroup" rowspan="'+works.length+'">'+escape(course.name)+'</th>') +
+      rows += '<tr>' + (i ? '' : '<th scope="rowgroup" rowspan="'+works.length+'"><div class="subject-heading"><span>'+escape(course.name)+
+        '</span><button class="icon-button" type="button" data-hide-subject="'+course.id+'" title="Скрыть из моих работ" aria-label="'+
+        escape("Скрыть предмет «"+course.name+"»")+'">'+icon("hide")+'</button></div>'+courseCheck(course)+'</th>') +
         '<td><button class="work-link" data-work="'+work.id+'" data-subject="'+course.id+'" aria-haspopup="dialog" aria-label="'+
         escape(label+" · "+work.name)+'"><strong>'+escape(label)+'</strong>' +
         (label.toLowerCase() !== work.name.toLowerCase() ? '<span>'+escape(work.name)+'</span>' : '')+'</button></td>' +
@@ -147,14 +211,36 @@ function workBoardBody() {
 }
 
 function workBoard() {
-  return header("Мои работы")+'<section class="panel work-board"><div id="work-rows">'+workBoardBody()+'</div></section>';
+  const hidden = live ? visibleCourses().filter(course=>hiddenSubjects.has(course.id)).length : 0;
+  const restore = hidden ? button("Скрытые предметы · "+hidden,'data-action="hidden-subjects"',"eye") : "";
+  return header("Мои работы","",restore)+'<section class="panel work-board"><div id="work-rows">'+workBoardBody()+'</div></section>';
+}
+
+function setSubjectHidden(id, hidden) {
+  const next = new Set(hiddenSubjects);
+  if (hidden) next.add(id);
+  else next.delete(id);
+  try { localStorage.setItem(boardStorageKey("hiddenSubjects"), JSON.stringify([...next])); }
+  catch { toast("Не удалось сохранить видимость предмета."); return false; }
+  hiddenSubjects = next;
+  if (hidden && boardWork?.courseId === id) hideWork(false);
+  render();
+  return true;
+}
+
+function showHiddenSubjects() {
+  const rows = visibleCourses().filter(course=>hiddenSubjects.has(course.id)).map(course=>'<div class="hidden-subject"><span>'+escape(course.name)+'</span>'+
+    button("Вернуть",'data-restore-subject="'+course.id+'" aria-label="'+escape("Вернуть предмет «"+course.name+"»")+'"',"eye","ghost")+'</div>');
+  if (rows.length) openDialog("Скрытые предметы", rows.join(""));
+  else dialog.close();
 }
 function updateBoard() {
   const body=document.getElementById(page==="home" ? "recent-works" : "work-rows");
   if (!body) return;
-  const active=document.activeElement?.closest("[data-work]");
+  const active=body.contains(document.activeElement) ? document.activeElement.dataset : {};
   body.innerHTML=page==="home" ? recentBody() : workBoardBody();
-  if (active) body.querySelector('[data-work="'+active.dataset.work+'"]')?.focus({preventScroll:true});
+  if (active.work) body.querySelector('[data-work="'+active.work+'"]')?.focus({preventScroll:true});
+  if (active.completion) body.querySelector('[data-completion="'+active.completion+'"]')?.focus({preventScroll:true});
 }
 function retryIndex() {
   for (const [id,index] of workIndexes) if (index.failed || index.partial) workIndexes.delete(id);
@@ -247,9 +333,10 @@ function renderDrawer() {
     (work.error?'<p role="alert">'+escape(work.error)+'</p>':'')+
     (sso ? button("Открыть в ЭОС",'data-url="'+escape(work.url)+'"',"external") :
       button("Войти через МГТУ для сдачи файлов",'data-action="work-login"',"person"));
-  if (expiredSession.eos) body.insertAdjacentHTML("afterbegin",'<div class="panel session-login"><strong>Сессия ЭОС истекла</strong>'+
-    button("Войти в ЭОС",'data-action="signIn"',"","primary")+'</div>');
-
+  if (expiredSession.eos) body.insertAdjacentHTML("afterbegin",'<div class="panel session-login"><strong>Сессия ЭОС истекла</strong>'+button("Войти в ЭОС",'data-action="work-login"',"","primary")+'</div>');
+  const key=work.courseId+"."+work.id;
+  if (completionMarks.has(key)) body.insertAdjacentHTML("beforeend", '<div class="actions">'+
+    button("Вернуть отметку из ЭОС",'data-reset-completion="'+key+'"',"refresh","ghost")+'</div>');
 }
 
 workDrawer.addEventListener("pointermove",e=>{if(e.pointerType==="mouse" && drawerVisible) drawerEntered=true;});

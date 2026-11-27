@@ -6,26 +6,32 @@
       const url = new URL(value,location.href);
       if (url.origin !== location.origin) return "";
       if (/^\/lks-back\/api\/v1\/student\/[^/]+\/progress\/?$/.test(url.pathname)) return "grades";
+      if (/^\/lks-back\/api\/v1\/student\/[^/]+\/sessions\/?$/.test(url.pathname)) return "sessions";
       if (url.pathname === "/lks-back/api/v1/person") return "person";
     } catch {}
     return "";
   };
   function read(kind, status, payload) {
     if (!kind) return;
-    if (status === 401 || status === 403) { send({type:"expired"}); return; }
-    if (kind !== "grades") return;
-    if (status !== 200 || !payload || !("data" in payload)) { send({type:"error"}); return; }
+    if (status === 401 || status === 403) { send({type:"expired",kind}); return; }
+    if (status !== 200 || !payload || !("data" in payload)) { send({type:"error",kind}); return; }
     const data = payload.data;
+    if (kind==="person") { send({type:data ? "result":"error",kind}); return; }
+    if (kind==="sessions") {
+      const terms=data==null || Object.keys(data).length===0 ? [] : data;
+      send(Array.isArray(terms) ? {type:"result",kind,terms,date:payload.date || ""} : {type:"error",kind});
+      return;
+    }
     const disciplines = !data || !Object.keys(data).length ? [] : data.student?.disciplines;
-    if (!Array.isArray(disciplines)) { send({type:"error"}); return; }
-    send({type:"result", disciplines, date:payload.date || ""});
+    if (!Array.isArray(disciplines)) { send({type:"error",kind}); return; }
+    send({type:"result", kind, disciplines, date:payload.date || ""});
   }
   const fetchPage = window.fetch;
   window.fetch = async function(...args) {
     const response = await fetchPage.apply(this,args);
     const kind = route(response.url);
     if (kind) {
-      if (kind === "grades" && response.ok) response.clone().json().then(p=>read(kind,response.status,p),()=>read(kind,response.status,null));
+      if (response.ok) response.clone().json().then(p=>read(kind,response.status,p),()=>read(kind,response.status,null));
       else read(kind,response.status,null);
     }
     return response;
@@ -36,7 +42,7 @@
       const kind = route(this.responseURL);
       if (!kind) return;
       let value;
-      if (kind === "grades" && this.status === 200) {
+      if (this.status === 200) {
         try { value = this.responseType === "json" ? this.response : JSON.parse(this.responseText); } catch {}
       }
       read(kind,this.status,value);

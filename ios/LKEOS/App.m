@@ -6,7 +6,15 @@ typedef void (^Reply)(id value, NSString *error);
 static NSString *const Home = @"campus://app/index.html";
 static NSString *const Eos = @"https://e-learning.bmstu.ru/kaluga/";
 static NSString *const Progress = @"https://lks.bmstu.ru/progress";
-static NSString *const LksLogin = @"https://lks.bmstu.ru/portal4/cookie/login?back=https%3A%2F%2Flks.bmstu.ru%2Fprogress&profile_any=true";
+static NSString *lksTarget(NSString *mode) {
+    if ([mode isEqual:@"sessions"]) return @"https://lks.bmstu.ru/session";
+    if ([mode isEqual:@"connectLks"]) return @"https://lks.bmstu.ru/profile";
+    return Progress;
+}
+static NSString *lksLogin(NSString *mode) {
+    NSString *target=[lksTarget(mode) stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.alphanumericCharacterSet];
+    return [NSString stringWithFormat:@"https://lks.bmstu.ru/portal4/cookie/login?back=%@&profile_any=true",target];
+}
 
 static BOOL host(NSURL *u, NSString *h) {
     return [u.scheme isEqual:@"https"] && [u.host.lowercaseString isEqual:h] &&
@@ -32,7 +40,7 @@ static void run(WKWebView *web, NSString *body, NSDictionary *args, Reply reply)
 @property(nonatomic,copy) Reply pending;
 @property(nonatomic,copy) NSString *mode;
 @property(nonatomic,strong) NSTimer *timer;
-@property(nonatomic) BOOL autoLogin, syncing, openedLksLogin, lksNeedsLogin;
+@property(nonatomic) BOOL backgroundLogin, autoLogin, syncing, openedLksLogin, lksNeedsLogin;
 @property(nonatomic,strong) NSNumber *editor;
 @property(nonatomic) NSUInteger operations;
 @property(nonatomic,strong) NSMapTable<WKDownload *,NSURL *> *downloads;
@@ -72,7 +80,7 @@ static void run(WKWebView *web, NSString *body, NSDictionary *args, Reply reply)
 }
 - (void)webView:(WKWebView *)web startURLSchemeTask:(id<WKURLSchemeTask>)task {
     NSURL *url=task.request.URL; NSString *file=url.lastPathComponent;
-    NSDictionary *mime=@{@"index.html":@"text/html",@"app.js":@"application/javascript",@"lab-ui.js":@"application/javascript",@"workboard.js":@"application/javascript",
+    NSDictionary *mime=@{@"index.html":@"text/html",@"app.js":@"application/javascript",@"lks-ui.js":@"application/javascript",@"lab-ui.js":@"application/javascript",@"workboard.js":@"application/javascript",
         @"style.css":@"text/css",@"phone.css":@"text/css",@"hero.jpg":@"image/jpeg"};
     NSURL *local=mime[file] && [url.host isEqual:@"app"] && [url.path isEqual:[@"/" stringByAppendingString:file]] ?
         [NSBundle.mainBundle URLForResource:file withExtension:nil subdirectory:@"Web"] : nil;
@@ -110,23 +118,37 @@ static void run(WKWebView *web, NSString *body, NSDictionary *args, Reply reply)
     WKWebsiteDataStore *store=[WKWebsiteDataStore dataStoreForIdentifier:[self.accounts storeID:service]];
     [store removeDataOfTypes:WKWebsiteDataStore.allWebsiteDataTypes modifiedSince:NSDate.distantPast completionHandler:done];
 }
+- (void)setLoading:(BOOL)loading {
+    self.backgroundLogin=loading;
+    NSString *service=[self.front.accessibilityIdentifier isEqual:@"lks"] ? @"lks" : @"eos";
+    NSString *js=[NSString stringWithFormat:@"window.campusLoginLoading(%@,'%@')",loading ? @"true":@"false",service];
+    [self.ui evaluateJavaScript:js completionHandler:nil];
+}
+- (void)revealForm {
+    self.autoLogin=NO; [self setLoading:NO];
+    self.ui.hidden=YES; self.front.hidden=NO; self.bar.hidden=NO;
+}
 - (void)show:(WKWebView *)web mode:(NSString *)mode reply:(Reply)reply {
     self.mode=mode; self.front=web; self.pending=reply; self.ui.hidden=YES; web.hidden=NO; self.bar.hidden=NO;
     self.caption.text=[web.accessibilityIdentifier isEqual:@"lks"] ? @"ЛКС МГТУ" : @"ЭОС МГТУ";
-    self.autoLogin=YES; self.syncing=NO;
+    self.autoLogin=self.accounts.autoLoginEnabled && ![mode isEqual:@"pick"]; self.syncing=NO;
+    if (reply && self.autoLogin && ([self.accounts credential:web.accessibilityIdentifier] || [self.accounts connected:web.accessibilityIdentifier])) {
+        self.ui.hidden=NO; web.hidden=YES; self.bar.hidden=YES; [self setLoading:YES];
+    }
     if (reply) {
         __weak CampusController *weak=self;
         self.timer=[NSTimer scheduledTimerWithTimeInterval:600 repeats:NO block:^(NSTimer *t){ [weak finish:nil error:@"Время ожидания истекло. Повторите вход."]; }];
     }
 }
 - (void)finish:(id)value error:(NSString *)error {
+    if (self.backgroundLogin) [self setLoading:NO];
     Reply cb=self.pending; self.pending=nil; [self.timer invalidate]; self.timer=nil;
     self.front.hidden=YES; self.front=nil; self.mode=nil; self.syncing=NO; self.autoLogin=NO;
     self.ui.hidden=NO; self.bar.hidden=YES;
     if (cb) cb(value ?: NSNull.null,error);
 }
 - (void)back {
-    if ([self.mode isEqual:@"progress"] && self.lksNeedsLogin) {
+    if (self.front==self.lks && self.lksNeedsLogin) {
         [self.front stopLoading]; [self finish:nil error:@"LKEOS_AUTH_LKS"]; return;
     }
     if ([self.mode isEqual:@"pick"]) {
@@ -162,19 +184,22 @@ static void run(WKWebView *web, NSString *body, NSDictionary *args, Reply reply)
 - (void)webView:(WKWebView *)web didFinishNavigation:(WKNavigation *)nav {
     if (web!=self.front) return;
     NSURL *u=web.URL; self.caption.text=u.host;
-    if (web==self.lks && host(u,@"sso.bmstu.ru") && [self.mode isEqual:@"progress"]) self.lksNeedsLogin=YES;
-    if (self.autoLogin && (host(u,@"sso.bmstu.ru") || (eosURL(u) && [u.path isEqual:@"/kaluga/login/index.php"]))) {
+    if (web==self.lks && host(u,@"sso.bmstu.ru") ) self.lksNeedsLogin=YES;
+    if (host(u,@"sso.bmstu.ru") || (eosURL(u) && [u.path isEqual:@"/kaluga/login/index.php"])) {
         NSDictionary *saved=[self.accounts credential:web.accessibilityIdentifier];
-        if (saved) {
+        if (saved && self.autoLogin) {
             NSMutableDictionary *args=[saved mutableCopy]; args[@"source"]=u.absoluteString; self.autoLogin=NO;
             run(web,script(@"login"),args,^(id clicked,NSString *e){
-                if (![clicked boolValue] && web==self.front && [web.URL isEqual:u]) self.autoLogin=YES;
+                if (![clicked boolValue] && web==self.front && [web.URL isEqual:u]) {
+                    if (self.backgroundLogin) [self revealForm];
+                    self.autoLogin=self.accounts.autoLoginEnabled;
+                }
             });
-        }
+        } else if (self.backgroundLogin) [self revealForm];
         return;
     }
-    if (web==self.lks && [self.mode isEqual:@"progress"] && [u.path isEqual:@"/profile"] && host(u,@"lks.bmstu.ru")) {
-        [self load:Progress web:web];return;
+    if (web==self.lks && ![self.mode isEqual:@"connectLks"] && [u.path isEqual:@"/profile"] && host(u,@"lks.bmstu.ru")) {
+        [self load:lksTarget(self.mode) web:web];return;
     }
     if (web!=self.eos || ![self.mode isEqual:@"signIn"] || !eosURL(u) || self.syncing) return;
     if ([u.path hasPrefix:@"/kaluga/auth/"] || [u.path hasPrefix:@"/kaluga/admin/"] || [u.path hasPrefix:@"/kaluga/login/"]) return;
@@ -197,21 +222,23 @@ static void run(WKWebView *web, NSString *body, NSDictionary *args, Reply reply)
 }
 - (void)userContentController:(WKUserContentController *)c didReceiveScriptMessage:(WKScriptMessage *)m {
     if (m.webView!=self.lks || !m.frameInfo.isMainFrame || !host(m.frameInfo.request.URL,@"lks.bmstu.ru") ||
-        ![self.mode isEqual:@"progress"] || ![m.body isKindOfClass:NSDictionary.class]) return;
+        self.front!=self.lks || ![m.body isKindOfClass:NSDictionary.class]) return;
     NSDictionary *payload=m.body;
+    NSString *expected=[self.mode isEqual:@"connectLks"] ? @"person" : [self.mode isEqual:@"sessions"] ? @"sessions" : @"grades";
+    if (![payload[@"kind"] isEqual:expected] && !([payload[@"kind"] isEqual:@"person"] && [payload[@"type"] isEqual:@"expired"])) return;
     if ([payload[@"type"] isEqual:@"expired"]) {
         self.lksNeedsLogin=YES;
-        if (!self.openedLksLogin) {self.openedLksLogin=YES;[self load:LksLogin web:self.lks];}
-        else if (!self.lks.loading && [self.lks.URL.path isEqual:@"/progress"]) [self finish:nil error:@"LKEOS_AUTH_LKS"];
+        if (!self.openedLksLogin) {self.openedLksLogin=YES;[self load:lksLogin(self.mode) web:self.lks];}
+        else if (!self.lks.loading && [self.lks.URL.absoluteString isEqual:lksTarget(self.mode)]) [self finish:nil error:@"LKEOS_AUTH_LKS"];
         return;
     }
-    if ([payload[@"type"] isEqual:@"result"] && [payload[@"disciplines"] isKindOfClass:NSArray.class]) {
+    if ([payload[@"type"] isEqual:@"result"] && ([expected isEqual:@"person"] || [payload[[expected isEqual:@"sessions"] ? @"terms":@"disciplines"] isKindOfClass:NSArray.class])) {
         [self.accounts setConnected:YES service:@"lks"];[self finish:payload error:nil];
     } else [self finish:nil error:@"ЛКС не предоставил ведомость."];
 }
 - (void)editLogin:(NSString *)service reply:(Reply)reply {
     NSDictionary *old=[self.accounts credential:service];
-    NSString *title=[service isEqual:@"lks"] ? @"Вход в ЛКС" : @"Вход в ЭОС";
+    NSString *title=@"Единый вход МГТУ";
     UIAlertController *alert=[UIAlertController alertControllerWithTitle:title message:@"Данные для этого профиля хранятся в Связке ключей iPhone." preferredStyle:UIAlertControllerStyleAlert];
     [alert addTextFieldWithConfigurationHandler:^(UITextField *f){f.placeholder=@"Имя пользователя"; f.text=old[@"login"]; f.textContentType=UITextContentTypeUsername; f.autocapitalizationType=UITextAutocapitalizationTypeNone; f.autocorrectionType=UITextAutocorrectionTypeNo;}];
     [alert addTextFieldWithConfigurationHandler:^(UITextField *f){f.placeholder=@"Пароль";f.secureTextEntry=YES;f.textContentType=UITextContentTypePassword;}];
@@ -219,7 +246,7 @@ static void run(WKWebView *web, NSString *body, NSDictionary *args, Reply reply)
     [alert addAction:[UIAlertAction actionWithTitle:@"Сохранить" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){
         NSString *login=[alert.textFields[0].text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
         if (![self.accounts save:service login:login password:alert.textFields[1].text]) {reply(nil,@"Не удалось сохранить логин и пароль.");return;}
-        if (![old[@"login"] isEqual:login]) [self clearService:service done:^{reply(self.accounts.view,nil);}];
+        if (![old[@"login"] isEqual:login]) [self clearService:@"eos" done:^{[self clearService:@"lks" done:^{reply(self.accounts.view,nil);}];}];
         else reply(self.accounts.view,nil);
     }]];
     [self presentViewController:alert animated:YES completion:nil];
@@ -230,20 +257,52 @@ static void run(WKWebView *web, NSString *body, NSDictionary *args, Reply reply)
     NSDictionary *q=m.body; NSString *a=q[@"action"], *service=q[@"service"];
     self.operations++; __block BOOL finished=NO;
     Reply done=^(id value,NSString *error){if (!finished) {finished=YES;self.operations--;reply(value ?: NSNull.null,error);}};
-    if ([a isEqual:@"accounts"]) {done(self.accounts.view,nil);return;}
+    if ([a isEqual:@"accounts"]) {
+        if ([self.accounts hasDifferentLegacyLksAccount]) {
+            NSDictionary *saved=[self.accounts credential:@"eos"];
+            [self clearService:@"lks" done:^{
+                if (![self.accounts save:@"shared" login:saved[@"login"] password:saved[@"password"]]) {
+                    done(nil,@"Не удалось обновить сохранённый вход.");return;
+                }
+                done(self.accounts.view,nil);
+            }];
+        } else done(self.accounts.view,nil);
+        return;
+    }
     if ([a isEqual:@"theme"]) { self.overrideUserInterfaceStyle=[q[@"mode"] isEqual:@"dark"] ? UIUserInterfaceStyleDark:UIUserInterfaceStyleLight; done(@YES,nil);return;}
-    if ([a isEqual:@"academicCalendar"]) {
-        NSURL *url=[NSURL URLWithString:@"https://lks.bmstu.ru/lks-back/api/v1/schedules/current"];
+    if ([a isEqual:@"academicCalendar"] || [a isEqual:@"schedule"]) {
+        NSURL *url=[NSURL URLWithString:[a isEqual:@"schedule"] ? @"https://lks.bmstu.ru/lks-back/api/v1/schedules/groups/815807d8-bc7e-11ee-b32d-df9b99f124c0/public" : @"https://lks.bmstu.ru/lks-back/api/v1/schedules/current"];
         [[NSURLSession.sharedSession dataTaskWithURL:url completionHandler:^(NSData *data,NSURLResponse *r,NSError *error){
             NSDictionary *p=data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
             dispatch_async(dispatch_get_main_queue(),^{done([p isKindOfClass:NSDictionary.class]?p[@"data"]:nil,error.localizedDescription);});
         }] resume]; return;
+    }
+    if ([a isEqual:@"showLoginForm"] || [a isEqual:@"cancelAutoLogin"]) {
+        if (self.backgroundLogin && [self.front.accessibilityIdentifier isEqual:service]) {
+            if ([a isEqual:@"showLoginForm"]) [self revealForm];
+            else { [self.front stopLoading]; [self finish:nil error:[service isEqual:@"lks"] ? @"Вход отменён." : nil]; }
+        }
+        done(@YES,nil);return;
     }
     if (self.front) {done(nil,@"Сначала вернитесь в кабинет.");return;}
     if ([a isEqual:@"sessionStatus"]) {
         WKWebView *web=[service isEqual:@"eos"] ? self.eos : [service isEqual:@"lks"] ? self.lks : nil;
         if (!web) {done(@"unknown",nil);return;}
         run(web,script(@"session-status"),@{@"service":service},done);return;
+    }
+    if ([@[@"renameAccount",@"deleteAccount",@"setAutoLogin"] containsObject:a]) {
+        if (![q[@"profileId"] isEqual:self.accounts.active] || self.operations>1) {done(nil,@"Дождитесь загрузки профиля.");return;}
+        if ([a isEqual:@"renameAccount"]) {
+            if (![self.accounts renameActive:q[@"newName"]]) {done(nil,@"Укажите уникальное название профиля.");return;}
+        } else if ([a isEqual:@"setAutoLogin"]) {
+            [self.accounts setAutoLoginEnabled:[q[@"enabled"] boolValue]];
+        } else {
+            [self clearService:@"eos" done:^{ [self clearService:@"lks" done:^{
+                if (![self.accounts removeActive]) {done(nil,@"Не удалось удалить профиль.");return;}
+                done(self.accounts.view,nil);
+            }]; }]; return;
+        }
+        done(self.accounts.view,nil);return;
     }
     if ([a isEqual:@"selectAccount"]) {
         if (self.operations>1) {done(nil,@"Дождитесь завершения загрузки.");return;}
@@ -260,10 +319,10 @@ static void run(WKWebView *web, NSString *body, NSDictionary *args, Reply reply)
     if ([a isEqual:@"disconnect"] || [a isEqual:@"disconnectLks"]) {
         [self clearService:[a isEqual:@"disconnect"] ? @"eos":@"lks" done:^{done(@YES,nil);}];return;
     }
-    if ([a isEqual:@"signIn"] || [a isEqual:@"progress"]) {
-        BOOL lks=[a isEqual:@"progress"]; WKWebView *web=[self portal:lks ? @"lks":@"eos" viewer:NO];
+    if ([@[@"signIn",@"progress",@"sessions",@"connectLks"] containsObject:a]) {
+        BOOL lks=![a isEqual:@"signIn"]; WKWebView *web=[self portal:lks ? @"lks":@"eos" viewer:NO];
         [self show:web mode:a reply:done]; self.openedLksLogin=lks && ![self.accounts connected:@"lks"]; self.lksNeedsLogin=NO;
-        [self load:lks ? (self.openedLksLogin ? LksLogin:Progress) : [Eos stringByAppendingString:@"my/"] web:web];return;
+        [self load:lks ? (self.openedLksLogin ? lksLogin(a):lksTarget(a)) : [Eos stringByAppendingString:@"my/"] web:web];return;
     }
     if ([a isEqual:@"open"] || [a isEqual:@"progressPage"]) {
         NSURL *url=[NSURL URLWithString:[a isEqual:@"open"] ? q[@"url"]:Progress];

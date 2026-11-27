@@ -7,7 +7,7 @@ document.documentElement.dataset.theme = ["dark", "light"].includes(themeChoice)
 
 const site = "https://e-learning.bmstu.ru/kaluga/";
 const official = { eos: site, lks: "https://lks.bmstu.ru/profile" };
-const labels = { home: "Обзор", courses: "Мои курсы", works: "Мои работы", tasks: "Задания", calendar: "Календарь", grades: "Успеваемость", settings: "Профиль", course: "Материалы курса", lab: "Лабораторная" };
+const labels = { home: "Обзор", schedule: "Расписание", sessions: "Сессия", courses: "Мои курсы", works: "Мои работы", tasks: "Задания", calendar: "Календарь", grades: "Успеваемость", settings: "Профиль", course: "Материалы курса", lab: "Лабораторная" };
 const moduleLabels = {
   assign: ["tasks", "Задание"], quiz: ["edit", "Тест"], forum: ["person", "Форум"],
   page: ["file", "Страница"], book: ["courses", "Книга"], resource: ["file", "Файл"],
@@ -57,7 +57,6 @@ let courseQuery = "";
 let showHidden = false;
 let courseId = 0;
 let selected = dayKey(now());
-let dayExpanded = false;
 let month = new Date(selected.slice(0, 7) + "-01T00:00:00Z");
 let connectionPending = false;
 let updatedAt = 0;
@@ -70,6 +69,7 @@ const sessionChecks = new Map();
 function markExpired(service) {
   if (expiredSession[service]) return;
   expiredSession[service]=true;
+  if (service==="lks") lksConnected=false;
   render();
 }
 async function checkSession(service) {
@@ -98,6 +98,34 @@ async function callHost(action, args = {}) {
   }
 }
 
+const loginLoading = document.getElementById("login-loading");
+let manualLoginTimer;
+const manualLoginButton=loginLoading.querySelector('[data-login-choice="showLoginForm"]');
+function chooseLogin(action) {
+  if (loginLoading.open) callHost(action, {service:loginLoading.dataset.service}).catch(error=>toast(error.message));
+}
+loginLoading.addEventListener("click",event=>{
+  const action=event.target.closest("[data-login-choice]")?.dataset.loginChoice;
+  if (action) chooseLogin(action);
+});
+loginLoading.addEventListener("cancel",event=>{event.preventDefault(); chooseLogin("cancelAutoLogin");});
+
+window.campusLoginLoading = (visible,service) => {
+    if (visible) {
+      clearTimeout(manualLoginTimer);
+      manualLoginButton.hidden=true;
+      manualLoginTimer=setTimeout(()=>{ manualLoginButton.hidden=false; },8000);
+      loginLoading.dataset.service=service;
+      document.getElementById("login-loading-title").textContent=service==="lks" ? "Подключаемся к ЛКС…" : "Подключаемся к ЭОС…";
+      if (restoringSession) main.innerHTML=overview();
+      if (!loginLoading.open) loginLoading.showModal();
+    } else if (loginLoading.dataset.service===service) {
+      clearTimeout(manualLoginTimer);
+      loginLoading.close();
+      manualLoginButton.hidden=true;
+    }
+};
+
 function go(view, details = 0) {
   if (boardWork) {
     if (lab?.busy === "save") { toast("Дождитесь завершения отправки."); return; }
@@ -120,11 +148,9 @@ function go(view, details = 0) {
   window.scrollTo(0, 0);
   main.focus({ preventScroll: true });
   if (view === "course" && live) loadCourse(courseId);
-  if (view === "grades" && !expiredSession.lks) {
-    void checkSession("lks").then(()=>{ if (page==="grades" && !expiredSession.lks) void loadProgress(); });
-  }
-  if (["settings","courses","works","home"].includes(view)) void checkSession("eos");
-  if (view === "settings") void checkSession("lks");
+  if (!servicesBusy && lksViews[view] && !lksViews[view].value && !lksViews[view].error && (view === "schedule" || lksConnected || accountsModel?.autoLogin !== false)) void loadLksView(view);
+  if (view==="settings") { void checkSession("lks"); void checkSession("eos"); }
+  if (!servicesBusy && !expiredSession.lks && view === "grades" && report === null && !reportError && (lksConnected || accountsModel?.autoLogin !== false)) void loadProgress();
 }
 
 function button(label, attributes, glyph, kind = "") {
@@ -160,7 +186,8 @@ function toggleCourseVisibility(id) {
     toast("Не удалось сохранить настройку после закрытия приложения.");
   }
   render();
-  document.querySelector('[data-course-visibility="' + id + '"]')?.focus();
+  (document.querySelector('[data-course-visibility="' + id + '"]') ??
+    document.querySelector('[data-action="hidden-subjects"]'))?.focus({preventScroll:true});
 }
 const isHidden = course => hiddenCourses.has(courseKey(course));
 const visibleCourses = () => data.courses.filter(course => !isHidden(course));
@@ -203,9 +230,11 @@ function taskRow(task, showCourse = true) {
 function courseCard(course, index) {
   const progress = course.progress == null ? null : Math.round(Math.min(100, Math.max(0, Number(course.progress))));
   const visibility = isHidden(course) ? "Вернуть курс" : "Скрыть курс";
+  const closedMark = completionMarks.get(String(course.id)) === true
+    ? '&nbsp;<span class="course-closed" role="img" aria-label="Предмет закрыт" title="Предмет закрыт">'+icon("check")+'</span>' : "";
   return '<article class="course-card"><button class="course-open" type="button" data-course="' + course.id + '">' +
     '<span class="course-card-heading">' + tile(index % 4 === 1 ? "code" : "courses", colors[index % 4]) + '</span>' +
-    '<h3>' + escape(course.name) + '</h3><p>' + escape(course.code) + '</p>' +
+    '<h3>' + escape(course.name) + closedMark + '</h3><p>' + escape(course.code) + '</p>' +
     (progress == null ? "" : '<div class="course-progress"><div class="progress-text"><span>Прогресс</span><strong>' + progress +
       '%</strong></div><span class="progress-track"><span class="progress-fill" style="width:' + progress +
       '%"></span></span></div>') + '</button><button class="icon-button course-visibility" type="button" data-course-visibility="' +
@@ -231,7 +260,7 @@ async function refreshAcademicCalendar() {
     rememberSemester(term.semesterStarts, term.semesterEnds);
     if (page === "home") {
       const label = main.querySelector(".week-parity");
-      if (label) label.textContent = academicWeekLabel(selected);
+      if (label) label.textContent = calendarWeekCaption(selected);
     }
     localStorage.setItem("campus.semesters", JSON.stringify([...semesters]));
   } catch { /* The published semester remains available offline. */ }
@@ -254,6 +283,11 @@ function academicWeekLabel(date) {
   return week ? (week % 2 ? "Числитель" : "Знаменатель") : "Нет данных о неделе";
 }
 
+function calendarWeekCaption(date) {
+  const week = academicWeekNumber(date);
+  return week ? week + "-я неделя · " + academicWeekLabel(date).toLocaleLowerCase("ru") : "Нет данных о неделе";
+}
+
 function monthCalendar(full) {
   const offset = (month.getUTCDay() + 6) % 7;
   const year = month.getUTCFullYear();
@@ -273,32 +307,28 @@ function monthCalendar(full) {
       (key === selected) + '" aria-label="' + escape(label) + '"' + (key === today ? ' aria-current="date"' : '') +
       '>' + date.getUTCDate() + '</button>';
   });
-  return '<section class="panel ' + (full ? "full-calendar" : "") + '"><div class="panel-head"><h2>' +
+  return '<section class="panel ' + (full ? "full-calendar" : "compact-calendar") + '"><div class="panel-head"><h2>' +
     (full ? "Месяц" : "Календарь") + '</h2><div class="month-tools">' +
     '<button type="button" class="icon-button" data-month="-1" aria-label="Предыдущий месяц">' + icon("back") + '</button>' +
-    '<span class="month-name" aria-live="polite">' + escape(capital(monthFormat.format(month).replace(/\sг\.$/, ""))) + '</span>' +
+    '<span class="month-caption"><span class="month-name" aria-live="polite">' + escape(capital(monthFormat.format(month).replace(/\sг\.$/, ""))) + '</span>' +
+    (full ? '' : '<span class="week-parity" aria-live="polite">' + calendarWeekCaption(selected) + '</span>') + '</span>' +
     '<button type="button" class="icon-button" data-month="1" aria-label="Следующий месяц">' + icon("chevron") + '</button>' +
     '</div></div><div class="month-grid">' + weekdays.concat(days).join("") + '</div>' +
-    (!full ? '<div class="calendar-footer"><span class="week-parity" aria-live="polite">' + academicWeekLabel(selected) + '</span>' +
-      button("Сегодня", 'data-action="today"', "", "ghost") + '</div>' +
-      (dayExpanded ? '<div class="calendar-agenda"><strong>' + escape(capital(fullDate.format(localDay(selected)))) + '</strong>' +
-        (visibleTasks().filter(task => task.due && dayKey(task.due) === selected).map(task => taskRow(task)).join("") ||
-        '<p>Событий нет</p>') + '</div>' : "") : '') + '</section>';
+    (full ? '' : '<div class="calendar-agenda"><strong>' + escape(capital(fullDate.format(localDay(selected)))) + '</strong><div class="agenda-items">' +
+      (orderTasks(visibleTasks().filter(task => task.due && dayKey(task.due) === selected)).map(task => taskRow(task)).join("") ||
+      '<p>Событий нет</p>') + '</div></div>') + '</section>';
 }
 
 function overview() {
-  const today = capital(fullDate.format(localDay(dayKey(now()))));
   const semester = monthText();
   const personalName = (data.name || "").trim().split(/\s+/).slice(0, 2).join(" ");
-  const heroTitle = live ? "Добрый день" + (personalName && personalName !== "Студент" ? ", " + escape(personalName) : "") :
+  const heroTitle = live ? "Добрый день" + (personalName && personalName !== "Студент" ? ",<br>" + escape(personalName) : "") :
     "Ваш учебный кабинет";
-  const heroText = live ? "Курсы и задания вашего профиля ЭОС." : "Войдите через МГТУ, чтобы загрузить свои курсы и задания.";
-  return header("Обзор", "", '<span class="today-label">' + icon("calendar") + escape(today) + '</span>') +
-    notice(data.warnings) + '<section class="hero"><div class="hero-copy"><div class="term">' + escape(semester) +
-    '</div><h2>' + heroTitle + '</h2><p>' + heroText + '</p>' +
-    '<div class="actions">' +
-    (!live ? button("Войти через МГТУ", 'data-action="signIn"' + (connectionPending ? " disabled" : ""), "chevron") : "") +
-    (live ? button("К моим курсам", 'data-nav="courses"', "chevron") : "") + '</div></div></section>' +
+  const login = live ? "" : '<p>Войдите через МГТУ, чтобы загрузить свои курсы и задания.</p>' +
+    button("Войти через МГТУ", 'data-action="signIn"' + (connectionPending ? " disabled" : ""), "chevron");
+  return header("Обзор") + notice(data.warnings) +
+    '<section class="hero"><div class="hero-copy"><div class="term">' + escape(semester) +
+    '</div><h2>' + heroTitle + '</h2>' + login + '</div></section>' +
     '<div class="overview-grid">' + recentPanel() + monthCalendar(false) + '</div>';
 }
 
@@ -363,11 +393,10 @@ function tasksPage() {
 
 function calendarPage() {
   const tasks = orderTasks(visibleTasks().filter(task => task.due && dayKey(task.due) === selected));
-  return header("Календарь", ("Сроки сдачи заданий") + " · московское время",
-    button("Сегодня", 'data-action="today"', "calendar")) + notice(warning("заданий")) +
+  return header("Календарь", "Сроки сдачи заданий · московское время") + notice(warning("заданий")) +
     '<div class="calendar-grid">' + monthCalendar(true) + '<section class="panel"><div class="panel-head"><h2>' +
     escape(capital(fullDate.format(localDay(selected)))) + '</h2></div>' +
-    (tasks.length ? tasks.map(task => taskRow(task)).join("") : empty("На эту дату сроков нет")) + '</section></div>';
+    (tasks.length ? tasks.map(task => taskRow(task)).join("") : empty("Событий нет")) + '</section></div>';
 }
 
 let report = null;
@@ -382,16 +411,17 @@ async function loadProgress() {
   render();
   try {
     const result = await callHost("progress");
-    if (!result) return;
     if (!Array.isArray(result?.disciplines)) throw new Error("ЛКС вернул неполную ведомость.");
-    report = result.disciplines;
     expiredSession.lks=false;
+    report = result.disciplines;
+    lksConnected = true;
     reportDate = formatReportDate(result.date);
+    if (accountsModel) accountsModel.restoreLks = true;
   } catch (error) {
     reportError = error.message;
   } finally {
     reportBusy = false;
-    if (page === "grades" || page === "home" || page==="settings") render();
+    if (page === "grades" || page === "home" || page === "settings") render();
   }
 }
 
@@ -401,7 +431,10 @@ async function disconnectLks() {
   render();
   try {
     await callHost("disconnectLks");
-    expiredSession.lks=false;
+    lksConnected = false;
+    Object.assign(lksViews.sessions,{value:null,error:""});
+    termFilter = "";
+    if (accountsModel) accountsModel.restoreLks = false;
     report = null;
     reportDate = "";
     reportError = "";
@@ -518,10 +551,10 @@ function reportTables() {
 }
 
 function gradesPage() {
-  const refresh = button(reportBusy ? "Подождите…" : report && !expiredSession.lks ? "Обновить" : "Войти в ЛКС",
+  const refresh = button(reportBusy ? "Подождите…" : expiredSession.lks ? "Войти в ЛКС" : report ? "Обновить" : lksConnected ? "Загрузить" : "Войти в ЛКС",
     'data-action="progress"' + (reportBusy ? " disabled" : ""), "refresh");
-  const top = header("Успеваемость", expiredSession.lks ? "Сессия ЛКС истекла. Войдите, чтобы обновить ведомость." : "Ведомость личного кабинета МГТУ", '<div class="actions">' +
-    (report && !expiredSession.lks ? button("Выйти из ЛКС", 'data-action="disconnect-lks"' + (reportBusy ? " disabled" : ""), "", "ghost") : "") + refresh + '</div>');
+  const top = header("Успеваемость", "Ведомость личного кабинета МГТУ", '<div class="actions">' +
+    (report ? button("Выйти из ЛКС", 'data-action="disconnect-lks"' + (reportBusy ? " disabled" : ""), "", "ghost") : "") + refresh + '</div>');
   const original = button("Открыть ведомость ЛКС", 'data-action="progress-page"', "external", "ghost");
   if (report === null) return top + '<section class="panel"><div class="empty"><strong>' +
     (reportBusy ? "Загружаем ведомость…" : "Успеваемость из ЛКС") + '</strong>' +
@@ -570,61 +603,95 @@ let accountsModel;
 function profilePanel() {
   if (!accountsModel) return '<section class="settings-panel profiles"><h2>Профили</h2>' +
     button("Загрузить профили", 'data-action="load-accounts"', "refresh") + '</section>';
-  const profile = accountsModel.profiles.find(item => item.id === accountsModel.active);
-  const choices = accountsModel.profiles.map(item => '<option value="' + escape(item.id) + '"' +
-    (item.id === profile.id ? ' selected' : '') + '>' + escape(item.name) + '</option>').join("");
-  const services = [["eos","ЭОС"],["lks","ЛКС"]].map(([key,title]) => {
-    const login = accountsModel[key];
-    return '<div class="saved-login"><div><strong>' + title + '</strong><small>' + escape(login || "Данные для входа не сохранены") +
-      '</small></div><div class="actions">' + button(login ? "Изменить" : "Сохранить логин и пароль",
-        'data-edit-login="' + key + '"', "person") + (login ? button("Забыть", 'data-forget-login="' + key + '"', "", "ghost") : "") + '</div></div>';
+  const {profiles,active,eos,autoLogin}=accountsModel;
+  const rows=profiles.map(profile=>{
+    const current=profile.id===active;
+    const initials=profile.name.trim().split(/\s+/).slice(0,2).map(part=>part[0]).join("").toUpperCase();
+    return '<button type="button" class="profile-row" data-select-profile="'+escape(profile.id)+'" aria-pressed="'+current+'">'+
+      '<span class="profile-badge" aria-hidden="true">'+escape(initials)+'</span><span>'+escape(profile.name)+'</span>'+
+      (current ? icon("check") : '')+'</button>';
   }).join("");
-  return '<section class="settings-panel profiles"><h2>Профили</h2><label for="active-account">Активный профиль</label>' +
-    '<select class="input" id="active-account">' + choices + '</select>' + services +
-    '<form id="add-account"><label for="account-name">Новый профиль</label><div class="actions">' +
-    '<input class="input" id="account-name" name="name" maxlength="60" required placeholder="Название профиля">' +
-    '<button class="button" type="submit">Создать и переключиться</button></div></form></section>';
+  return '<section class="settings-panel profiles"><div class="profiles-head"><h2>Профили</h2>'+
+    button("Создать",'data-profile-command="create"',"plus","ghost")+'</div>'+
+    '<div class="profile-list">'+rows+'</div><div class="profile-tools">'+button("Переименовать",'data-profile-command="rename"',"edit","ghost")+
+    button("Удалить",'data-profile-command="remove"',"","ghost danger")+'</div>'+
+    '<div class="profile-setting"><div><strong>Единый вход МГТУ</strong><small>'+escape(eos || "Для ЭОС и ЛКС")+'</small></div><div class="actions">'+
+    button(eos ? "Изменить" : "Сохранить логин и пароль",'data-edit-login="eos"',"person")+
+    (eos ? button("Забыть",'data-forget-login="eos"',"","ghost") : "")+'</div></div>'+
+    '<div class="profile-setting"><div><strong>Автовход</strong><small>В ЭОС при запуске, в ЛКС при открытии успеваемости или сессии</small></div>'+
+    '<button class="profile-switch" type="button" role="switch" aria-label="Автовход" aria-checked="'+(autoLogin!==false)+'" data-action="auto-login"><span></span></button></div></section>';
+}
+
+function profileCommand(command) {
+  const {id,name}=accountsModel.profiles.find(p=>p.id===accountsModel.active);
+  if (command==="remove") {
+    openDialog("Удалить профиль «"+name+"»?",'<p class="dialog-meta">С этого iPhone будут удалены сохранённый пароль и сессии ЭОС и ЛКС этого профиля.</p><div class="actions">'+
+      button("Отмена",'data-action="close"',"")+button("Удалить профиль",'data-delete-profile="'+escape(id)+'"',"","remove-profile")+'</div>');
+    dialog.querySelector('.actions [data-action=close]')?.focus();
+    return;
+  }
+  const rename=command==="rename";
+  openDialog(rename?"Переименовать профиль":"Новый профиль",'<form id="profile-form" data-profile="'+(rename?escape(id):"")+'">'+
+    '<label for="profile-name">Название профиля</label><input class="input" id="profile-name" name="name" maxlength="60" required value="'+
+    escape(rename?name:"")+'"><div class="actions">'+button("Отмена",'data-action="close"',"")+
+    '<button class="button primary" type="submit">'+(rename?"Сохранить":"Создать и переключиться")+'</button></div></form>');
+  dialog.querySelector("input").select();
 }
 
 async function accountAction(action, args = {}) {
   try {
     const result = await callHost(action,args);
-    if (action === "selectAccount") { location.reload(); return; }
-    if (action === "editLogin" && accountsModel?.[args.service] !== result[args.service]) {
-      if (args.service === "eos") { location.reload(); return; }
-      report = null;
-      expiredSession.lks=false;
-      reportDate = "";
-      reportError = "";
+    if (action==="deleteAccount") {
+      for (const key of Object.keys(localStorage)) {
+        const prefix=["campus.recentWorks.", "campus.completion.", "campus.hiddenSubjects."].find(group=>key.startsWith(group));
+        if (prefix) {
+          try { if (JSON.parse(key.slice(prefix.length))[0]===args.profileId) localStorage.removeItem(key); } catch {}
+        }
+      }
     }
+    if (action==="selectAccount" || action==="deleteAccount" || (action==="editLogin" && accountsModel?.eos!==result.eos)) {
+      location.reload(); return;
+    }
+    if (action==="renameAccount") dialog.close();
     accountsModel = result;
     if (page === "settings") render();
-  } catch (error) { toast(error.message); }
+  } catch (error) {
+    if (dialog.open && ["selectAccount","renameAccount","deleteAccount"].includes(action)) {
+      let message=dialog.querySelector("[role=alert]");
+      if (!message) { message=document.createElement("p"); message.setAttribute("role","alert"); dialog.append(message); }
+      message.textContent=error.message;
+    } else toast(error.message);
+  }
 }
 
 function settingsPage() {
+  const time = updatedAt ? new Intl.DateTimeFormat("ru-RU", { timeZone: zone, hour: "2-digit", minute: "2-digit" }).format(new Date(updatedAt)) : "";
+  const disabled = servicesBusy || connectionPending || reportBusy || lksViews.sessions.busy || lksViews.schedule.busy ? " disabled" : "";
+  const lksLive = lksConnected && !expiredSession.lks;
+  const anyConnection = live || lksLive || accountsModel?.restoreLks;
+  const actions = button(live && lksLive ? "Войти заново" : "Войти", 'data-services="login"' + disabled, "person", "primary") +
+    button("Обновить", 'data-services="refresh"' + disabled, "refresh") +
+    button("Отключить", 'data-services="disconnect"' + (disabled || (anyConnection ? "" : " disabled")), "");
+  const dark = document.documentElement.dataset.theme === "dark";
+  const lksStatus = expiredSession.lks ? 'Требуется повторный вход' : reportBusy || lksViews.sessions.busy ? "Проверяем подключение…" : reportError || lksViews.sessions.error ? "Ошибка загрузки" :
+    lksLive ? "Подключено" : accountsModel?.restoreLks ? "Сессия сохранена" : "Ожидает входа";
   const name=data.name || accountsModel?.profiles.find(p=>p.id===accountsModel.active)?.name || "Профиль";
-  const initials=name.trim().split(/\s+/).slice(0,2).map(word=>word[0]).join("").toLocaleUpperCase("ru");
-  const dark=document.documentElement.dataset.theme==="dark";
-  const serviceRow=(title,status,actions)=>'<div class="service-row"><div><strong>'+title+'</strong><small>'+status+
-    '</small></div><div class="actions">'+actions+'</div></div>';
-  const eosActive=live && !expiredSession.eos;
-  const lksActive=report!==null && !expiredSession.lks;
-  const eosStatus=connectionPending ? "Подключение…" : expiredSession.eos ? "Требуется повторный вход" : live ? "Подключена" : "Вход не выполнен";
-  const lksStatus=reportBusy ? "Подключение…" : expiredSession.lks ? "Требуется повторный вход" : lksActive ? "Подключён" :
-    accountsModel?.restoreLks ? "Сессия сохранена · проверится при входе" : "Вход не выполнен";
-  return header("Профиль")+'<div class="panel settings-grid"><div class="connection-sections"><section class="settings-panel">'+
-    '<div class="profile-identity"><span class="profile-initials" aria-hidden="true">'+escape(initials)+'</span><strong>'+escape(name)+'</strong></div>'+
-    '<div class="profile-theme"><strong>Тёмная тема</strong><button type="button" class="theme-toggle" role="switch" aria-label="Тёмная тема" aria-checked="'+dark+'" data-action="theme"><span></span></button></div></section>'+
-    '<section class="settings-panel"><h2>Учебные сервисы</h2>'+
-    serviceRow("ЭОС",eosStatus,eosActive ? button("Обновить",'data-action="refresh"'+(connectionPending?" disabled":""),"refresh","ghost")+
-      button("Выйти",'data-action="disconnect"'+(connectionPending?" disabled":""),"") :
-      button("Войти в ЭОС",'data-action="signIn"'+(connectionPending?" disabled":""),"","primary"))+
-    serviceRow("ЛКС",lksStatus,lksActive ? button("Выйти",'data-action="disconnect-lks"'+(reportBusy?" disabled":""),"") :
-      button("Войти в ЛКС",'data-action="progress"'+(reportBusy?" disabled":""),"","primary"))+
-    (reportError ? '<p class="feedback" role="status">'+escape(reportError)+'</p>' : "")+
-    '<p id="feedback" class="feedback" role="status"></p></section>' +
-    '<section class="settings-panel"><h2>Официальные сервисы</h2>' +
+  const initials=name.trim().split(/\s+/).slice(0,2).map(w=>w[0]).join("").toLocaleUpperCase("ru");
+  return header("Профиль") + '<div class="panel settings-panel profile-identity"><span class="profile-initials">'+escape(initials)+'</span><strong>'+escape(name)+'</strong></div>' +
+    '<div class="panel settings-grid"><div class="connection-sections"><section class="settings-panel connections" aria-labelledby="connections-title">' +
+    '<h2 id="connections-title">Подключения</h2><div class="connection-list">' +
+    '<div class="connection-item"><div class="connection-identity">' + icon("courses") + '<h3>ЭОС</h3></div>' +
+    '<span class="connection-status' + (live && !expiredSession.eos ? ' connected' : '') + '">' + (expiredSession.eos ? 'Требуется повторный вход' : live ? 'Подключено' : 'Не подключено') + '</span>' +
+    '<div class="connection-body">' +
+    (live ? '<p>' + (sso ? "Вход через МГТУ" : "API Moodle") + ' · Обновлено в ' + escape(time) + ' мск</p>' :
+      '') +
+    '<p id="feedback" class="feedback" role="status"></p></div></div>' +
+    '<div class="connection-item"><div class="connection-identity">' + icon("grades") + '<h3>ЛКС</h3></div>' +
+    '<span class="connection-status' + (lksLive && !reportBusy && !reportError && !lksViews.sessions.error ? ' connected' : '') + '">' + lksStatus + '</span>' +
+    '</div><div class="actions">' + actions + '</div>' + (servicesError ? notice([servicesError]) : '') + '</div></section>' +
+    '<section class="settings-panel"><div class="theme-setting"><strong>Тема оформления</strong>' +
+    button(dark ? "Тёмная" : "Светлая", 'data-action="theme" aria-label="Включить ' + (dark ? "светлую" : "тёмную") + ' тему"', dark ? "moon" : "sun") +
+    '</div><h2 class="service-links-title">Официальные сервисы</h2>' +
     '<p>Сдача работ, тесты и материалы доступны в окне официальной ЭОС.</p><div class="actions">' +
     button("Открыть ЭОС", 'data-external="eos"', "globe") +
     button("ЛКС МГТУ", 'data-external="lks"', "external") + '</div></section></div>' + profilePanel() + '</div>';
@@ -634,9 +701,13 @@ function render() {
   const active = page === "course" || (page === "lab" && lab?.from === "course") ? "courses" :
     page === "lab" ? "tasks" : page;
   labels.tasks = "Задания";
-  navigation.innerHTML = ["home", "courses", "works", "grades"].map(view =>
-    '<button class="nav-item" type="button" data-nav="' + view + '" aria-label="'+escape(labels[view])+'"' + (active === view ? ' aria-current="page"' : '') +
-    '>' + icon(view==="works" ? "tasks" : view) + (view==="grades" ? '<span class="regular-label">Успеваемость</span><span class="short-label">Оценки</span>' : '<span>'+escape(labels[view])+'</span>') + '</button>').join("");
+  const studyTab=["schedule","sessions","grades"].includes(page);
+  navigation.innerHTML = ["home","courses","works","schedule"].map(view => {
+    const label=view==="schedule" ? "Учёба" : labels[view];
+    return '<button class="nav-item" type="button" data-nav="'+view+'" aria-label="'+escape(label)+'"'+
+      ((view==="schedule" ? studyTab : active===view) ? ' aria-current="page"' : '')+'>'+
+      icon(view==="works" ? "tasks" : view==="schedule" ? "calendar" : view)+'<span>'+escape(label)+'</span></button>';
+  }).join("");
   const settings = document.querySelector(".sidebar-bottom [data-nav=settings]");
   if (active === "settings") settings.setAttribute("aria-current", "page");
   else settings.removeAttribute("aria-current");
@@ -645,16 +716,13 @@ function render() {
       (connectionPending ? "Входим в ЭОС…" : "Открываем профиль…") + '</h2></section>';
     return;
   }
-  const views = { home: overview, courses: coursesPage, works: workBoard, tasks: tasksPage, calendar: calendarPage, grades: gradesPage, settings: settingsPage, course: coursePage, lab: labPage };
+  const views = { schedule: () => lksSection("schedule"), sessions: () => lksSection("sessions"), home: overview, courses: coursesPage, works: workBoard, tasks: tasksPage, calendar: calendarPage, grades: gradesPage, settings: settingsPage, course: coursePage, lab: labPage };
   try {
-    main.innerHTML = views[page]();
-    if (page!=="settings" && page!=="grades" && (expiredSession.eos || (page==="works" && !live))) {
-      const banner='<div class="panel session-login"><strong>'+(expiredSession.eos ? "Сессия ЭОС истекла" : "Работы доступны после входа")+
-        '</strong>'+button("Войти в ЭОС",'data-action="signIn"'+(connectionPending?" disabled":""),"","primary")+'</div>';
-      const heading=main.querySelector(".page-head");
-      if (heading) heading.insertAdjacentHTML("afterend",banner);
-      else main.insertAdjacentHTML("afterbegin",banner);
-    }
+    const sections = studyTab ? '<nav class="phone-study" aria-label="Учёба">'+["schedule","grades","sessions"].map(v=>
+      '<button type="button" data-nav="'+v+'"'+(page===v?' aria-current="page"':'')+'>'+escape(labels[v])+'</button>').join("")+'</nav>' : "";
+    main.innerHTML = sections+views[page]();
+    if (expiredSession.eos && ["home","works","courses","course","lab"].includes(page))
+      main.insertAdjacentHTML("afterbegin",'<div class="panel session-login"><strong>Сессия ЭОС истекла</strong>'+button("Войти в ЭОС",'data-action="signIn"',"","primary")+'</div>');
     renderDrawer();
     tickBoard();
   } catch {
@@ -765,10 +833,10 @@ async function connection(action, args = {}) {
   let error;
   try {
     const result = await callHost(action, args);
-    if (action === "signIn" && !result) return;
-    expiredSession.eos=false;
+    if (action === "signIn" && !result) return "Вход отменён.";
     live = action === "signIn" || action === "connect" || action === "refresh";
     sso = action === "signIn" || (action === "refresh" && sso);
+    expiredSession.eos=false;
     data = live ? result : emptyStudyData();
     hiddenCourses = readHiddenCourses();
     showHidden = false;
@@ -780,7 +848,7 @@ async function connection(action, args = {}) {
     sectionsByCourse.clear();
     submissionByTask.clear();
     dialog.close();
-    if (page==="course" || page==="lab" || (action==="connect" && page!=="settings")) go("home");
+    if (!servicesBusy && (page === "course" || action === "connect" || action === "signIn")) go("home");
     toast(live ? "Данные ЭОС обновлены" : "ЭОС отключена");
   } catch (failure) {
     error = failure.message;
@@ -788,13 +856,13 @@ async function connection(action, args = {}) {
     connectionPending = false;
     render();
     if (error) {
-      if (action==="refresh") void checkSession("eos");
       if (action === "connect") document.querySelector(".advanced")?.setAttribute("open", "");
       const feedback = document.getElementById("feedback");
       if (feedback) feedback.textContent = error;
       else toast(error);
     }
   }
+  return error;
 }
 
 document.querySelectorAll("[data-icon]").forEach(element => {
@@ -806,6 +874,9 @@ document.addEventListener("click", event => {
   const element = event.target.closest("button");
   if (!element) return;
   const key = element.dataset;
+  if (key.services) return void manageServices(key.services);
+  if (key.loadLks && !servicesBusy) return void loadLksView(key.loadLks);
+  if (key.subgroup) { selectedSubgroup = Number(key.subgroup); render(); document.querySelector('[data-subgroup="'+selectedSubgroup+'"]')?.focus({preventScroll:true}); return; }
   if (key.nav) {
     if (key.nav === "tasks") {
       filter = key.filter ?? "all";
@@ -813,13 +884,38 @@ document.addEventListener("click", event => {
     }
     go(key.nav);
   } else if (key.courseVisibility) toggleCourseVisibility(Number(key.courseVisibility));
+  else if (key.hideSubject) {
+    if (setSubjectHidden(Number(key.hideSubject), true))
+      document.querySelector('[data-action="hidden-subjects"]')?.focus({preventScroll:true});
+  }
+  else if (key.restoreSubject) {
+    const id = Number(key.restoreSubject);
+    if (!setSubjectHidden(id, false)) return;
+    showHiddenSubjects();
+    if (dialog.open) dialog.querySelector("[data-restore-subject]").focus();
+    else document.querySelector('[data-hide-subject="'+id+'"]')?.focus({preventScroll:true});
+  }
+  else if (key.confirmMark) {
+    dialog.close();
+    saveCompletion(key.confirmMark, key.checked === "true");
+    document.querySelector('[data-completion="'+key.confirmMark+'"]')?.focus({preventScroll:true});
+  }
   else if (key.switchWork) {
     dialog.close();
     releaseWork();
     showWork(Number(key.subject), Number(key.switchWork));
   }
   else if (key.work) showWork(Number(key.subject), Number(key.work));
+  else if (key.resetCompletion && saveCompletion(key.resetCompletion, null)) {
+    element.remove();
+    workDrawer.querySelector("[data-action=close-work]").focus({preventScroll:true});
+  }
   else if (key.mark) openReportMark(key.mark);
+  else if (key.profileCommand) profileCommand(key.profileCommand);
+  else if (key.selectProfile) {
+    if (key.selectProfile!==accountsModel.active) accountAction("selectAccount",{profileId:key.selectProfile});
+  }
+  else if (key.deleteProfile) accountAction("deleteAccount",{profileId:key.deleteProfile});
   else if (key.editLogin) accountAction("editLogin",{service:key.editLogin});
   else if (key.forgetLogin) accountAction("forgetLogin",{service:key.forgetLogin});
   else if (key.labUrl) openLab(key.labUrl, key.labTitle, courseId);
@@ -843,7 +939,6 @@ document.addEventListener("click", event => {
   } else if (key.day) {
     selected = key.day;
     month = new Date(selected.slice(0, 7) + "-01T00:00:00Z");
-    dayExpanded = true;
     render();
     document.querySelector('[data-day="' + selected + '"]').focus();
   } else if (key.month) {
@@ -851,7 +946,6 @@ document.addEventListener("click", event => {
     const first = utcKey(month);
     const today = dayKey(now());
     selected = first.slice(0, 7) === today.slice(0, 7) ? today : first;
-    dayExpanded = false;
     render();
     document.querySelector('[data-month="' + key.month + '"]').focus();
   } else switch (key.action) {
@@ -871,19 +965,15 @@ document.addEventListener("click", event => {
       render();
       break;
     }
-    case "progress": loadProgress(); break;
+    case "progress": if (!servicesBusy) loadProgress(); break;
+    case "auto-login": accountAction("setAutoLogin",{profileId:accountsModel.active,enabled:accountsModel.autoLogin===false}); break;
     case "load-accounts": accountAction("accounts"); break;
-    case "disconnect-lks": disconnectLks(); break;
+    case "disconnect-lks": if (!servicesBusy && !lksViews.sessions.busy) disconnectLks(); break;
     case "progress-page": callHost("progressPage").catch(error => toast(error.message)); break;
     case "course-retry": loadCourse(courseId); break;
-    case "today":
-      selected = dayKey(now());
-      month = new Date(selected.slice(0, 7) + "-01T00:00:00Z");
-      render();
-      document.querySelector('[data-action="today"]')?.focus();
-      break;
     case "search": showSearch(); break;
     case "close": dialog.close(); break;
+    case "hidden-subjects": showHiddenSubjects(); break;
     case "signIn": connection("signIn"); break;
     case "refresh": connection("refresh"); break;
     case "disconnect": connection("disconnect"); break;
@@ -903,10 +993,9 @@ document.addEventListener("input", event => {
   } else if (event.target.id === "search-box") searchResults();
 });
 document.addEventListener("change", event => {
-  if (event.target.id === "active-account") {
-    const id = event.target.value;
-    event.target.value = accountsModel.active;
-    accountAction("selectAccount",{profileId:id});
+  if (event.target.id === "session-term") { termFilter = event.target.value; render(); return; }
+  if (event.target.matches("input[data-completion]")) {
+    changeCompletion(event.target);
     return;
   }
   if (lab && event.target.id === "lab-replace") {
@@ -940,13 +1029,14 @@ document.addEventListener("drop", event => {
   if (!event.dataTransfer.files.length) return;
   event.preventDefault();
   document.getElementById("lab-drop")?.classList.remove("dragging");
-  if (event.target.closest("[data-drop=lab]")) stageLab("labDropFiles", Array.from(event.dataTransfer.files));
+  if (event.target.closest("[data-drop=lab]")) toast("Нажмите «Выбрать файлы», чтобы приложить файл с iPhone.");
 });
 document.addEventListener("submit", event => {
-  if (event.target.id === "add-account") {
+  if (event.target.id === "profile-form") {
     event.preventDefault();
     const name = new FormData(event.target).get("name").trim();
-    if (name) accountAction("selectAccount",{newName:name});
+    const id=event.target.dataset.profile;
+    if (name) accountAction(id?"renameAccount":"selectAccount",{profileId:id,newName:name});
     return;
   }
   if (event.target.id !== "connect-form") return;
@@ -956,6 +1046,7 @@ document.addEventListener("submit", event => {
   connection("connect", { token });
 });
 document.addEventListener("keydown", event => {
+  if (loginLoading.open) return;
   if ((event.ctrlKey || event.metaKey) && event.code === "KeyK") {
     event.preventDefault();
     showSearch();
@@ -972,9 +1063,7 @@ if (bridge) callHost("theme", { mode: document.documentElement.dataset.theme }).
 render();
 if (bridge) void refreshAcademicCalendar();
 if (bridge) void restoreAccount();
-document.addEventListener("visibilitychange",()=>{
-  if (!document.hidden) { void checkSession("eos"); void checkSession("lks"); }
-});
+document.addEventListener("visibilitychange",()=>{ if (!document.hidden) { void checkSession("eos"); void checkSession("lks"); } });
 
 async function restoreAccount() {
   const shell = document.querySelector(".shell");
@@ -984,7 +1073,7 @@ async function restoreAccount() {
     if (accountsModel) {
       try { localStorage.removeItem("campus.lksPhoto." + accountsModel.active); } catch {}
     }
-    if (accountsModel?.eos || accountsModel?.restoreEos) await connection("signIn");
+    if (accountsModel?.autoLogin !== false && (accountsModel?.eos || accountsModel?.restoreEos)) await connection("signIn");
   } finally {
     restoringSession = false;
     shell.inert = false;

@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   iphone:
-    if: github.event.head_commit.message == 'Publish iPhone 1.3 to v1.0'
+    if: github.event.head_commit.message == 'Publish iPhone 1.0 to v1.0'
     runs-on: macos-15
     permissions:
       contents: write
@@ -31,26 +31,43 @@ jobs:
           /usr/bin/codesign --force --sign - --timestamp=none "$app"
           /usr/bin/codesign --verify --strict "$app"
           test "$(/usr/libexec/PlistBuddy -c 'Print MinimumOSVersion' "$app/Info.plist")" = "17.0"
-          test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$app/Info.plist")" = "1.3"
+          test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$app/Info.plist")" = "1.0"
           test "$(/usr/libexec/PlistBuddy -c 'Print DTPlatformName' "$app/Info.plist")" = "iphoneos"
           lipo "$app/LKEOS" -verify_arch arm64
-          (cd "$RUNNER_TEMP/package" && /usr/bin/zip -qry "$GITHUB_WORKSPACE/LKEOS-1.3-iphone.ipa" Payload)
-          unzip -tq LKEOS-1.3-iphone.ipa
+          (cd "$RUNNER_TEMP/package" && /usr/bin/zip -qry "$GITHUB_WORKSPACE/LKEOS-1.0-iphone.ipa" Payload)
+          unzip -tq LKEOS-1.0-iphone.ipa
       - name: Добавить IPA к релизу 1.0
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          asset=LKEOS-1.3-iphone.ipa
+          asset=LKEOS-1.0-iphone.ipa
           assets="$(gh release view v1.0 --json assets --jq '.assets[].name')"
           if ! grep -Fxq "$asset" <<< "$assets"; then
             gh release upload v1.0 "$asset"
           fi
           notes="$RUNNER_TEMP/release.md"
           gh release view v1.0 --json body --jq '.body' > "$notes"
-          if ! grep -Fq "$asset" "$notes"; then
-            printf '\n### Для iPhone\n\n' >> "$notes"
-            printf '[Скачать ЛКЭОС 1.3 для iPhone](https://github.com/%s/releases/download/v1.0/%s). Требуется iOS 17 или новее. Перед установкой подпишите IPA для своего устройства. [Проект для Xcode](https://github.com/%s/tree/%s/ios).\n' "$GITHUB_REPOSITORY" "$asset" "$GITHUB_REPOSITORY" "$GITHUB_SHA" >> "$notes"
-          fi
+          python3 - "$notes" <<'PY'
+          import os, sys
+          from pathlib import Path
+          notes = Path(sys.argv[1])
+          lines = notes.read_text().splitlines()
+          url = "https://github.com/" + os.environ["GITHUB_REPOSITORY"]
+          paragraph = (f"[Скачать IPA для iPhone]({url}/releases/download/v1.0/LKEOS-1.0-iphone.ipa). "
+                       "Версия 1.0 для iOS 17 и новее. Перед установкой подпишите IPA для своего устройства. "
+                       f"[Исходники и инструкция]({url}/tree/{os.environ['GITHUB_SHA']}/ios).")
+          if "### Для iPhone" not in lines:
+              lines.extend(["", "### Для iPhone", ""])
+          old = next((i for i, line in enumerate(lines) if line.startswith(("[Скачать ЛКЭОС 1.3 для iPhone]", "[Скачать IPA для iPhone]"))), None)
+          if old is None:
+              lines.insert(lines.index("### Для iPhone") + 1, "\n" + paragraph)
+          else:
+              lines[old] = paragraph
+          notes.write_text("\n".join(lines).rstrip() + "\n")
+          PY
           gh release edit v1.0 --title 'ЛКЭОС 1.0 для Windows и iPhone' --notes-file "$notes"
+          if grep -Fxq 'LKEOS-1.3-iphone.ipa' <<< "$assets"; then
+            gh release delete-asset v1.0 LKEOS-1.3-iphone.ipa --yes
+          fi

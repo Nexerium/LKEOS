@@ -34,9 +34,18 @@
   </div>
   <aside id="work-drawer" class="work-drawer" role="dialog" aria-label="Карточка работы" hidden><div class="work-drawer-head"><strong class="work-caption"></strong><button type="button" class="icon-button" data-action="close-work" aria-label="Закрыть карточку"><svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg></button></div><div class="work-body"></div></aside>
   <dialog id="dialog" aria-labelledby="dialog-title"></dialog>
+  <dialog id="login-loading" aria-labelledby="login-loading-title">
+    <span class="login-spinner" aria-hidden="true"></span>
+    <h2 class="visually-hidden" id="login-loading-title" aria-live="polite"></h2>
+    <div class="actions">
+      <button type="button" class="button" hidden data-login-choice="showLoginForm">Открыть форму входа</button>
+      <button type="button" class="button ghost" data-login-choice="cancelAutoLogin">Отмена</button>
+    </div>
+  </dialog>
   <div id="toast" class="toast" role="status" hidden></div>
   <script src="workboard.js"></script>
   <script src="lab-ui.js"></script>
+  <script src="lks-ui.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
