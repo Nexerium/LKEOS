@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="221" height="44" viewBox="0 0 221 44" role="img" aria-labelledby="title">
+  <title id="title">Поддержать проект</title>
+  <rect width="221" height="44" rx="10" fill="#146890"/>
+  <path fill="#fff" d="m13 21 22-9c1-.4 2 .3 1.7 1.7l-3.5 17c-.2 1.1-1 1.5-2 .8l-6.4-4.8 6.5-8.1-9.5 6.9-7.8-2.6c-1.1-.4-1.1-1.4 0-1.9Z"/>
+  <text x="46" y="28" font-family="Segoe UI,Arial,sans-serif" font-weight="600" font-size="16" fill="#fff">Поддержать проект</text>
+</svg>
