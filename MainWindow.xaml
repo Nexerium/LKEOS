@@ -1,0 +1,54 @@
+<Window x:Class="KalugaCampus.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        Title="ЛКЭОС · ЭОС Калужского филиала" Width="1336" Height="900"
+        MinWidth="790" MinHeight="550" WindowStartupLocation="CenterScreen"
+        WindowStyle="None" Icon="campus.ico" Background="#F3F6FA" Loaded="OnLoaded">
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="36" ResizeBorderThickness="6" GlassFrameThickness="0" CornerRadius="0" UseAeroCaptionButtons="False"/>
+    </WindowChrome.WindowChrome>
+    <Window.Resources>
+        <Style x:Key="CaptionButton" TargetType="Button">
+            <Setter Property="WindowChrome.IsHitTestVisibleInChrome" Value="True"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#E5EEFF"/>
+            <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Width" Value="46"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+                <Border x:Name="Plate" Background="{TemplateBinding Background}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Plate" Property="Background" Value="#365075"/></Trigger>
+                    <MultiTrigger><MultiTrigger.Conditions><Condition Property="IsMouseOver" Value="True"/><Condition Property="Tag" Value="close"/></MultiTrigger.Conditions><Setter TargetName="Plate" Property="Background" Value="#B63850"/></MultiTrigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
+    </Window.Resources>
+    <Grid x:Name="WindowFrame">
+      <Grid.RowDefinitions><RowDefinition Height="36"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+      <DockPanel x:Name="CaptionBar" Background="#142649" LastChildFill="True">
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+          <Button Style="{StaticResource CaptionButton}" Content="&#xE921;" Click="MinimizeWindow" AutomationProperties.Name="Свернуть" ToolTip="Свернуть"/>
+          <Button x:Name="MaxButton" Style="{StaticResource CaptionButton}" Content="&#xE922;" Click="MaximizeWindow" AutomationProperties.Name="Развернуть" ToolTip="Развернуть"/>
+          <Button Style="{StaticResource CaptionButton}" Content="&#xE8BB;" Tag="close" Click="CloseWindow" AutomationProperties.Name="Закрыть" ToolTip="Закрыть"/>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Margin="14,0" VerticalAlignment="Center">
+          <Image Source="campus.ico" Width="18" Height="18"/>
+          <TextBlock Text="ЛКЭОС" Foreground="#ECF4FF" FontWeight="SemiBold" Margin="8,0"/>
+        </StackPanel>
+      </DockPanel>
+      <Grid Grid.Row="1">
+        <TextBlock x:Name="LoadingMessage" Text="Открываем учебный кабинет…"
+                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                   Foreground="#405575" FontSize="18" TextWrapping="Wrap" Margin="56"/>
+        <Button x:Name="RetryStartup" Content="Открыть ещё раз" Click="RetryDashboard" Visibility="Collapsed"
+                HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,100,0,0" Padding="16,7"/>
+        <wv:WebView2 x:Name="Dashboard" Visibility="Hidden"/>
+        <ContentControl x:Name="PortalHost" Visibility="Collapsed"
+                        HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
+        <ContentControl x:Name="ViewerHost" Visibility="Collapsed" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
+        <ContentControl x:Name="LksHost" Visibility="Collapsed" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
+      </Grid>
+    </Grid>
+</Window>

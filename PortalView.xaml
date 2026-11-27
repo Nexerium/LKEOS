@@ -1,0 +1,33 @@
+<UserControl x:Class="KalugaCampus.PortalView"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        Background="White">
+    <UserControl.Resources>
+        <Style TargetType="Button">
+            <Setter Property="Foreground" Value="#E2EEFF"/>
+            <Setter Property="Background" Value="#273F65"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+                <Border Name="Plate" Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Plate" Property="Background" Value="#385784"/></Trigger></ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
+    </UserControl.Resources>
+    <DockPanel>
+        <Border x:Name="PortalBar" DockPanel.Dock="Top" Background="#142649" Padding="13,10">
+            <DockPanel LastChildFill="True">
+                <Button DockPanel.Dock="Left" Content="‹  В ЛКЭОС" Click="OnReturn"
+                        Padding="12,5" Margin="0,0,13,0"/>
+                <Button DockPanel.Dock="Right" Content="Обновить страницу" Click="OnReload"
+                        Padding="12,5" Margin="12,0,0,0"/>
+                <Button x:Name="LksButton" DockPanel.Dock="Right" Content="К успеваемости" Click="OnLksProgress" Visibility="Collapsed" Padding="10,4" Margin="8,0"/>
+                <TextBlock x:Name="AddressLabel" Text="Открываем ЭОС…" Foreground="White"
+                           VerticalAlignment="Center" FontSize="14" TextTrimming="CharacterEllipsis"/>
+            </DockPanel>
+        </Border>
+        <wv:WebView2 x:Name="Browser" />
+    </DockPanel>
+</UserControl>

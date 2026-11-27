@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:">
+  <title>ЛКЭОС · ЭОС Калужского филиала</title>
+  <style>/* CAMPUS_STYLES */</style>
+</head>
+<body>
+  <svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+    <symbol id="icon-close" viewBox="0 0 20 20"><path d="m4.5 4.5 11 11m0-11-11 11"/></symbol>
+    <symbol id="icon-eye" viewBox="0 0 20 20"><path d="M1.5 10s3-5.5 8.5-5.5 8.5 5.5 8.5 5.5-3 5.5-8.5 5.5S1.5 10 1.5 10Z"/><circle cx="10" cy="10" r="2.5"/></symbol>
+    <symbol id="icon-hide" viewBox="0 0 20 20"><path d="m2 2 16 16M4.4 6.3A16 16 0 0 0 1.5 10s3 5.5 8.5 5.5a9 9 0 0 0 3.7-.8M8 4.7a9 9 0 0 1 2-.2c5.5 0 8.5 5.5 8.5 5.5a17 17 0 0 1-2.3 2.9M8.2 8.2a2.55 2.55 0 0 0 3.6 3.6"/></symbol>
+  </svg>
+  <div class="shell">
+    <aside class="sidebar">
+      <button class="brand" type="button" data-nav="home" aria-label="ЛКЭОС, обзор">
+        <svg class="brand-mark" viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="12" fill="#315fe4"/><path fill="#fff" d="M10 11l12 6v22l-12-6zM25 18l13-8v9l-13 8z"/><path fill="#a5ddff" d="M25 29l8-5 7 8-12 6-3-3z"/></svg>
+        <span><strong>ЛКЭОС</strong><small>МГТУ · Калуга</small></span>
+      </button>
+      <nav id="navigation" aria-label="Учебный кабинет"></nav>
+      <div class="sidebar-bottom">
+        <button class="nav-item" type="button" data-nav="settings">
+          <span class="profile-badge" aria-hidden="true"></span> Профиль
+        </button>
+      </div>
+    </aside>
+    <div class="workspace">
+      <header class="topbar">
+        <div class="toolbar">
+          <button type="button" class="search-trigger" data-action="search" aria-label="Поиск по курсам и заданиям">
+            <span data-icon="search"></span><span>Поиск</span><kbd>Ctrl K</kbd>
+          </button>
+        </div>
+      </header>
+      <main id="content" tabindex="-1"></main>
+    </div>
+  </div>
+  <aside id="work-drawer" class="work-drawer" role="dialog" aria-label="Карточка работы" hidden><div class="work-drawer-head"><strong class="work-caption"></strong><button type="button" class="icon-button" data-action="close-work" aria-label="Закрыть карточку"><svg class="action-icon" aria-hidden="true"><use href="#icon-close"/></svg></button></div><div class="work-body"></div></aside>
+  <dialog id="dialog" aria-labelledby="dialog-title"></dialog>
+  <dialog id="login-loading" aria-labelledby="login-loading-title">
+    <span class="login-spinner" aria-hidden="true"></span>
+    <h2 class="visually-hidden" id="login-loading-title" aria-live="polite"></h2>
+    <div class="actions">
+      <button type="button" class="button" hidden data-login-choice="showLoginForm">Открыть форму входа</button>
+      <button type="button" class="button ghost" data-login-choice="cancelAutoLogin">Отмена</button>
+    </div>
+  </dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script>/* CAMPUS_WORK_BOARD */</script>
+  <script>/* CAMPUS_LAB_UI */</script>
+  <script>/* CAMPUS_LKS_UI */</script>
+  <script>/* CAMPUS_SCRIPT */</script>
+</body>
+</html>
