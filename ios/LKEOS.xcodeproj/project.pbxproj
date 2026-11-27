@@ -1,0 +1,42 @@
+// !$*UTF8*$!
+{ archiveVersion = 1; classes = {}; objectVersion = 56; objects = {
+000000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "App.m"; sourceTree = "<group>"; };
+000000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "Accounts.m"; sourceTree = "<group>"; };
+000000000000000000000003 = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Accounts.h"; sourceTree = "<group>"; };
+000000000000000000000004 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Info.plist"; sourceTree = "<group>"; };
+000000000000000000000005 = {isa = PBXFileReference; lastKnownFileType = folder; path = "Web"; sourceTree = "<group>"; };
+000000000000000000000006 = {isa = PBXFileReference; lastKnownFileType = folder; path = "PortalScripts"; sourceTree = "<group>"; };
+000000000000000000000007 = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Assets.xcassets"; sourceTree = "<group>"; };
+000000000000000000000008 = {isa = PBXBuildFile; fileRef = 000000000000000000000001; };
+000000000000000000000009 = {isa = PBXBuildFile; fileRef = 000000000000000000000002; };
+00000000000000000000000A = {isa = PBXBuildFile; fileRef = 000000000000000000000005; };
+00000000000000000000000B = {isa = PBXBuildFile; fileRef = 000000000000000000000006; };
+00000000000000000000000C = {isa = PBXBuildFile; fileRef = 000000000000000000000007; };
+00000000000000000000000D = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
+00000000000000000000000E = {isa = PBXBuildFile; fileRef = 00000000000000000000000D; };
+00000000000000000000000F = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
+000000000000000000000010 = {isa = PBXBuildFile; fileRef = 00000000000000000000000F; };
+000000000000000000000011 = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+000000000000000000000012 = {isa = PBXBuildFile; fileRef = 000000000000000000000011; };
+000000000000000000000013 = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
+000000000000000000000014 = {isa = PBXBuildFile; fileRef = 000000000000000000000013; };
+000000000000000000000015 = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
+000000000000000000000016 = {isa = PBXBuildFile; fileRef = 000000000000000000000015; };
+000000000000000000000017 = {isa = PBXFileReference; explicitFileType = wrapper.application; path = LKEOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+00000000000000000000001B = {isa = PBXGroup; children = (000000000000000000000018, 000000000000000000000019, 00000000000000000000001A); sourceTree = "<group>"; };
+000000000000000000000018 = {isa = PBXGroup; children = (000000000000000000000001, 000000000000000000000002, 000000000000000000000003, 000000000000000000000004, 000000000000000000000005, 000000000000000000000006, 000000000000000000000007); path = LKEOS; sourceTree = "<group>"; };
+000000000000000000000019 = {isa = PBXGroup; children = (00000000000000000000000D, 00000000000000000000000F, 000000000000000000000011, 000000000000000000000013, 000000000000000000000015); name = Frameworks; sourceTree = "<group>"; };
+00000000000000000000001A = {isa = PBXGroup; children = (000000000000000000000017); name = Products; sourceTree = "<group>"; };
+00000000000000000000001C = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (000000000000000000000008, 000000000000000000000009); runOnlyForDeploymentPostprocessing = 0; };
+00000000000000000000001D = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (00000000000000000000000A, 00000000000000000000000B, 00000000000000000000000C); runOnlyForDeploymentPostprocessing = 0; };
+00000000000000000000001E = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (00000000000000000000000E, 000000000000000000000010, 000000000000000000000012, 000000000000000000000014, 000000000000000000000016); runOnlyForDeploymentPostprocessing = 0; };
+00000000000000000000001F = {isa = XCBuildConfiguration; buildSettings = { CLANG_ENABLE_MODULES = YES; CLANG_ENABLE_OBJC_ARC = YES; SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 17.0; GCC_OPTIMIZATION_LEVEL = 0; }; name = Debug; };
+000000000000000000000020 = {isa = XCBuildConfiguration; buildSettings = { CLANG_ENABLE_MODULES = YES; CLANG_ENABLE_OBJC_ARC = YES; SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 17.0; GCC_OPTIMIZATION_LEVEL = s; }; name = Release; };
+000000000000000000000021 = {isa = XCConfigurationList; buildConfigurations = (00000000000000000000001F, 000000000000000000000020); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+000000000000000000000022 = {isa = XCBuildConfiguration; buildSettings = { PRODUCT_NAME = LKEOS; PRODUCT_BUNDLE_IDENTIFIER = app.lkeos.mobile; TARGETED_DEVICE_FAMILY = 1; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; CODE_SIGN_STYLE = Automatic; INFOPLIST_FILE = LKEOS/Info.plist; ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; MARKETING_VERSION = 1.3; CURRENT_PROJECT_VERSION = 5; }; name = Debug; };
+000000000000000000000023 = {isa = XCBuildConfiguration; buildSettings = { PRODUCT_NAME = LKEOS; PRODUCT_BUNDLE_IDENTIFIER = app.lkeos.mobile; TARGETED_DEVICE_FAMILY = 1; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; CODE_SIGN_STYLE = Automatic; INFOPLIST_FILE = LKEOS/Info.plist; ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; MARKETING_VERSION = 1.3; CURRENT_PROJECT_VERSION = 5; }; name = Release; };
+000000000000000000000024 = {isa = XCConfigurationList; buildConfigurations = (000000000000000000000022, 000000000000000000000023); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+000000000000000000000025 = {isa = PBXNativeTarget; buildConfigurationList = 000000000000000000000024; buildPhases = (00000000000000000000001C, 00000000000000000000001E, 00000000000000000000001D); buildRules = (); dependencies = (); name = LKEOS; productName = LKEOS; productReference = 000000000000000000000017; productType = "com.apple.product-type.application"; };
+000000000000000000000026 = {isa = PBXProject; attributes = { LastUpgradeCheck = 1500; }; buildConfigurationList = 000000000000000000000021; compatibilityVersion = "Xcode 14.0"; developmentRegion = ru; hasScannedForEncodings = 0; knownRegions = (ru, Base); mainGroup = 00000000000000000000001B; productRefGroup = 00000000000000000000001A; projectDirPath = ""; projectRoot = ""; targets = (000000000000000000000025); };
+}; rootObject = 000000000000000000000026; }
+
