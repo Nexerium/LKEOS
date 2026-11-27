@@ -35,4 +35,8 @@ dotnet publish KalugaCampus.csproj -c Release -r win-x64 --self-contained true -
 
 </details>
 
+### Помощь и поддержка проекта
+
+Есть вопрос или хочешь поддержать ЛКЭОС? [Напиши автору в Telegram](https://t.me/sexamine).
+
 Независимый студенческий проект. Скриншоты сделаны на тестовых данных.
